@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
+
 import {
- import {
   Box,
   Card,
   CardContent,
@@ -21,19 +21,17 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
+  DialogActions
 } from '@mui/material';
-} from '@mui/material';
+
 import {
   People as PeopleIcon,
   Newspaper as NewspaperIcon,
   Subscriptions as SubscriptionsIcon,
   MiscellaneousServices as ServicesIcon,
   Payment as PaymentIcon,
-  Notifications as NotificationsIcon,
-  Analytics as AnalyticsIcon,
+  Notifications as NotificationsIcon
 } from '@mui/icons-material';
-
 const Dashboard = () => {
   const [stats, setStats] = useState({
     profiles: 0,
