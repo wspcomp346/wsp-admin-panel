@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import {
+ import {
   Box,
   Card,
   CardContent,
@@ -21,13 +22,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
-  Snackbar,
-  Alert,
-  IconButton,
-  Tooltip,
-  Switch,
-  FormControlLabel,
+} from '@mui/material';
 } from '@mui/material';
 import {
   People as PeopleIcon,
