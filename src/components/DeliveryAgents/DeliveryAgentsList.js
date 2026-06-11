@@ -32,6 +32,8 @@ import {
   ListItem,
   ListItemText,
   Divider,
+  Checkbox,
+  OutlinedInput,
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -57,7 +59,7 @@ const DeliveryAgentsList = () => {
     name: '',
     code: '',
     phone: '',
-    area_id: '',
+    area_ids: [],
     active: true,
   });
 
@@ -144,10 +146,13 @@ const DeliveryAgentsList = () => {
         .from('delivery_agents')
         .select(`
           *,
-          areas:area_id (
-            id,
-            name,
-            code
+          delivery_agent_areas (
+            area_id,
+            areas (
+              id,
+              name,
+              code
+            )
           )
         `);
 
@@ -191,7 +196,10 @@ const DeliveryAgentsList = () => {
         name: agent.name || '',
         code: agent.code || '',
         phone: agent.phone || '',
-        area_id: agent.area_id || '',
+        area_ids:
+          agent.delivery_agent_areas?.map(
+            (area) => area.area_id
+          ) || [],
         active: agent.active,
       });
     } else {
@@ -200,7 +208,7 @@ const DeliveryAgentsList = () => {
         name: '',
         code: '',
         phone: '',
-        area_id: '',
+        area_ids: [],
         active: true,
       });
     }
@@ -237,56 +245,77 @@ const DeliveryAgentsList = () => {
         alert('Delivery agent code is required');
         return;
       }
-      if (!formData.area_id) {
-        alert('Please select an area');
+      if (!formData.area_ids.length) {
+        alert('Please select at least one area');
         return;
       }
 
       if (currentAgent) {
         // Update existing delivery agent
-        const { error } = await supabase
+        const { error: updateError } = await supabase
           .from('delivery_agents')
           .update({
             name: formData.name.trim(),
             code: formData.code.trim(),
             phone: formData.phone.trim(),
-            area_id: formData.area_id,
             active: formData.active,
             updated_at: new Date().toISOString(),
           })
           .eq('id', currentAgent.id);
+        if (updateError) throw updateError;
 
-        if (error) {
-          console.error('Update error:', error);
-          alert(`Error updating delivery agent: ${error.message}`);
-          return;
+        // Replace area associations: delete old ones, then insert new ones
+        const { error: deleteError } = await supabase
+          .from('delivery_agent_areas')
+          .delete()
+          .eq('delivery_agent_id', currentAgent.id);
+        if (deleteError) throw deleteError;
+
+        if (formData.area_ids.length > 0) {
+          const { error: insertError } = await supabase
+            .from('delivery_agent_areas')
+            .insert(
+              formData.area_ids.map((areaId) => ({
+                delivery_agent_id: currentAgent.id,
+                area_id: areaId,
+              }))
+            );
+          if (insertError) throw insertError;
         }
-        alert('Delivery agent updated successfully!');
       } else {
-        // Create new delivery agent
-        const { error } = await supabase.from('delivery_agents').insert([
-          {
-            name: formData.name.trim(),
-            code: formData.code.trim(),
-            phone: formData.phone.trim(),
-            area_id: formData.area_id,
-            active: formData.active,
-          },
-        ]);
+        // Add new delivery agent
+        const { data: newAgent, error: insertAgentError } = await supabase
+          .from('delivery_agents')
+          .insert([
+            {
+              name: formData.name.trim(),
+              code: formData.code.trim(),
+              phone: formData.phone.trim(),
+              active: formData.active,
+            },
+          ])
+          .select()
+          .single();
+        if (insertAgentError) throw insertAgentError;
 
-        if (error) {
-          console.error('Insert error:', error);
-          alert(`Error creating delivery agent: ${error.message}`);
-          return;
+        if (newAgent && formData.area_ids.length > 0) {
+          const { error: insertAreaError } = await supabase
+            .from('delivery_agent_areas')
+            .insert(
+              formData.area_ids.map((areaId) => ({
+                delivery_agent_id: newAgent.id,
+                area_id: areaId,
+              }))
+            );
+          if (insertAreaError) throw insertAreaError;
         }
-        alert('Delivery agent created successfully!');
       }
 
       fetchDeliveryAgents();
       handleCloseDialog();
     } catch (error) {
       console.error('Error saving delivery agent:', error);
-      alert(`Unexpected error: ${error.message}`);
+      alert(`Error: ${error.message}`);
     }
   };
 
@@ -313,7 +342,7 @@ const DeliveryAgentsList = () => {
     try {
       const { error } = await supabase
         .from('delivery_agents')
-        .update({ 
+        .update({
           active: !currentStatus,
           updated_at: new Date().toISOString(),
         })
@@ -382,15 +411,15 @@ const DeliveryAgentsList = () => {
                     .map((agent) => (
                       <TableRow hover key={agent.id}>
                         <TableCell>
-                          <Typography 
-                            variant="body2" 
-                            sx={{ 
-                              cursor: 'pointer', 
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              cursor: 'pointer',
                               color: 'primary.main',
                               textDecoration: 'underline',
                               '&:hover': {
-                                color: 'primary.dark'
-                              }
+                                color: 'primary.dark',
+                              },
                             }}
                             onClick={() => handleShowAgentDetails(agent)}
                           >
@@ -408,13 +437,25 @@ const DeliveryAgentsList = () => {
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2">
-                            {agent.areas ? `${agent.areas.name} (${agent.areas.code})` : '-'}
-                          </Typography>
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 0.5,
+                            }}
+                          >
+                            {agent.delivery_agent_areas?.map((item) => (
+                              <Chip
+                                key={item.area_id}
+                                label={item.areas?.name}
+                                size="small"
+                              />
+                            ))}
+                          </Box>
                         </TableCell>
                         <TableCell>
-                          <Chip 
-                            label={agent.active ? 'Active' : 'Inactive'} 
+                          <Chip
+                            label={agent.active ? 'Active' : 'Inactive'}
                             color={agent.active ? 'success' : 'default'}
                             size="small"
                             onClick={() => handleToggleActive(agent.id, agent.active)}
@@ -512,15 +553,40 @@ const DeliveryAgentsList = () => {
             sx={{ mt: 2 }}
           />
           <FormControl fullWidth sx={{ mt: 2 }}>
-            <InputLabel>Area</InputLabel>
+            <InputLabel>Areas</InputLabel>
             <Select
-              name="area_id"
-              value={formData.area_id}
-              onChange={handleInputChange}
-              label="Area"
+              multiple
+              value={formData.area_ids}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  area_ids: e.target.value,
+                })
+              }
+              input={<OutlinedInput label="Areas" />}
+              renderValue={(selected) => (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {selected.map((value) => {
+                    const area = areas.find((a) => a.id === value);
+                    return (
+                      <Chip
+                        key={value}
+                        label={area?.name}
+                        onDelete={() => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            area_ids: prev.area_ids.filter((id) => id !== value),
+                          }));
+                        }}
+                      />
+                    );
+                  })}
+                </Box>
+              )}
             >
               {areas.map((area) => (
                 <MenuItem key={area.id} value={area.id}>
+                  <Checkbox checked={formData.area_ids.includes(area.id)} />
                   {area.name} ({area.code})
                 </MenuItem>
               ))}
@@ -545,81 +611,90 @@ const DeliveryAgentsList = () => {
             {currentAgent ? 'Update' : 'Add'}
           </Button>
         </DialogActions>
-       </Dialog>
+      </Dialog>
 
-       {/* Agent Details Dialog */}
-       <Dialog 
-         open={openDetailsDialog} 
-         onClose={handleCloseDetailsDialog} 
-         maxWidth="md" 
-         fullWidth
-       >
-         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-           <Box sx={{ display: 'flex', alignItems: 'center' }}>
-             <PeopleIcon sx={{ mr: 1 }} />
-             Connected Users - {currentAgent?.name}
-           </Box>
-           <IconButton onClick={handleCloseDetailsDialog} size="small">
-             <CloseIcon />
-           </IconButton>
-         </DialogTitle>
-         <DialogContent>
-           {currentAgent && (
-             <Box sx={{ mb: 2 }}>
-               <Typography variant="h6" gutterBottom>
-                 Delivery Agent Information
-               </Typography>
-               <Typography variant="body2" color="textSecondary">
-                 <strong>Code:</strong> {currentAgent.code}
-               </Typography>
-               <Typography variant="body2" color="textSecondary">
-                 <strong>Phone:</strong> {currentAgent.phone || 'N/A'}
-               </Typography>
-               <Typography variant="body2" color="textSecondary">
-                 <strong>Area:</strong> {currentAgent.areas ? `${currentAgent.areas.name} (${currentAgent.areas.code})` : 'N/A'}
-               </Typography>
-               <Typography variant="body2" color="textSecondary">
-                 <strong>Status:</strong> {currentAgent.active ? 'Active' : 'Inactive'}
-               </Typography>
-             </Box>
-           )}
-           
-           <Divider sx={{ my: 2 }} />
-           
-           <Typography variant="h6" gutterBottom>
-             Connected Users ({selectedAgentUsers.length})
-           </Typography>
-           
-           {loadingUsers ? (
-             <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-               <CircularProgress />
-             </Box>
-           ) : selectedAgentUsers.length > 0 ? (
-             <List>
-               {selectedAgentUsers.map((user, index) => (
-                 <React.Fragment key={user.id}>
-                   <ListItem>
-                     <ListItemText
-                       primary={user.name || 'Unknown User'}
-                       secondary={`Phone: ${user.phone || 'N/A'}`}
-                     />
-                   </ListItem>
-                   {index < selectedAgentUsers.length - 1 && <Divider />}
-                 </React.Fragment>
-               ))}
-             </List>
-           ) : (
-             <Typography variant="body2" color="textSecondary" sx={{ textAlign: 'center', py: 3 }}>
-               No users connected to this delivery agent
-             </Typography>
-           )}
-         </DialogContent>
-         <DialogActions>
-           <Button onClick={handleCloseDetailsDialog}>Close</Button>
-         </DialogActions>
-       </Dialog>
-     </Box>
-   );
- };
+      {/* Agent Details Dialog */}
+      <Dialog
+        open={openDetailsDialog}
+        onClose={handleCloseDetailsDialog}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <PeopleIcon sx={{ mr: 1 }} />
+            Connected Users - {currentAgent?.name}
+          </Box>
+          <IconButton onClick={handleCloseDetailsDialog} size="small">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          {currentAgent && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                Delivery Agent Information
+              </Typography>
+              <Typography variant="body2" color="textSecondary">
+                <strong>Code:</strong> {currentAgent.code}
+              </Typography>
+              <Typography variant="body2" color="textSecondary">
+                <strong>Phone:</strong> {currentAgent.phone || 'N/A'}
+              </Typography>
+              <Typography variant="body2" color="textSecondary">
+                <strong>Areas:</strong> 
+                <Box sx={{ mt: 1, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                  {currentAgent?.delivery_agent_areas?.map((item) => (
+                    <Chip
+                      key={item.area_id}
+                      label={item.areas?.name}
+                      size="small"
+                    />
+                  ))}
+                </Box>
+              </Typography>
+              <Typography variant="body2" color="textSecondary">
+                <strong>Status:</strong> {currentAgent.active ? 'Active' : 'Inactive'}
+              </Typography>
+            </Box>
+          )}
 
- export default DeliveryAgentsList;
+          <Divider sx={{ my: 2 }} />
+
+          <Typography variant="h6" gutterBottom>
+            Connected Users ({selectedAgentUsers.length})
+          </Typography>
+
+          {loadingUsers ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+              <CircularProgress />
+            </Box>
+          ) : selectedAgentUsers.length > 0 ? (
+            <List>
+              {selectedAgentUsers.map((user, index) => (
+                <React.Fragment key={user.id}>
+                  <ListItem>
+                    <ListItemText
+                      primary={user.name || 'Unknown User'}
+                      secondary={`Phone: ${user.phone || 'N/A'}`}
+                    />
+                  </ListItem>
+                  {index < selectedAgentUsers.length - 1 && <Divider />}
+                </React.Fragment>
+              ))}
+            </List>
+          ) : (
+            <Typography variant="body2" color="textSecondary" sx={{ textAlign: 'center', py: 3 }}>
+              No users connected to this delivery agent
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDetailsDialog}>Close</Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+};
+
+export default DeliveryAgentsList;
